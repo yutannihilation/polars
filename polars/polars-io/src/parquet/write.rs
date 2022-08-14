@@ -3,15 +3,16 @@ use std::io::Write;
 use arrow::array::Array;
 use arrow::chunk::Chunk;
 use arrow::datatypes::DataType as ArrowDataType;
-use arrow::datatypes::PhysicalType;
+use arrow::datatypes::{PhysicalType, PrimitiveType};
 use arrow::error::Error as ArrowError;
 use arrow::io::parquet::read::ParquetError;
 use arrow::io::parquet::write::{self, FileWriter, *};
-use arrow::io::parquet::write::{DynIter, DynStreamingIterator, Encoding};
+use arrow::io::parquet::write::{DynIter, DynStreamingIterator, };
 use polars_core::prelude::*;
 use polars_core::utils::{accumulate_dataframes_vertical_unchecked, split_df};
 use rayon::prelude::*;
 pub use write::{BrotliLevel, CompressionOptions as ParquetCompression, GzipLevel, ZstdLevel};
+pub use arrow::io::parquet::write::Encoding as ParquetEncoding;
 
 /// Write a DataFrame to parquet format
 ///
@@ -21,6 +22,7 @@ pub struct ParquetWriter<W> {
     compression: write::CompressionOptions,
     statistics: bool,
     row_group_size: Option<usize>,
+    default_encoding: Encoding
 }
 
 impl<W> ParquetWriter<W>
@@ -37,6 +39,7 @@ where
             compression: write::CompressionOptions::Lz4Raw,
             statistics: false,
             row_group_size: None,
+            default_encoding: Encoding::Plain
         }
     }
 
@@ -59,6 +62,12 @@ where
     /// writing performance.
     pub fn with_row_group_size(mut self, size: Option<usize>) -> Self {
         self.row_group_size = size;
+        self
+    }
+
+    /// Set the default encoding. Defaults to `Encoding::Plain`.
+    pub fn default_encoding(mut self, encoding: Encoding) -> Self {
+        self.default_encoding = encoding;
         self
     }
 
@@ -88,7 +97,10 @@ where
         let encoding_map = |data_type: &ArrowDataType| {
             match data_type.to_physical_type() {
                 PhysicalType::Dictionary(_) => Encoding::RleDictionary,
-                // remaining is plain
+                PhysicalType::Primitive(primitive) if !matches!(primitive, PrimitiveType::Float32 | PrimitiveType::Float64) => {
+                    self.default_encoding
+                }
+                // remaining is plain/default
                 _ => Encoding::Plain,
             }
         };

@@ -51,6 +51,9 @@ JoinStrategy: TypeAlias = Literal[
 ToStructStrategy: TypeAlias = Literal[
     "first_non_null", "max_width"
 ]  # ListToStructWidthStrategy
+ParquetEncoding: TypeAlias = Literal[
+    "plain", "rle-dictionary"
+]
 
 # The following have no equivalent on the Rust side
 ConcatMethod = Literal["vertical", "diagonal", "horizontal"]

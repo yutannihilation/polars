@@ -584,6 +584,7 @@ impl PyDataFrame {
         compression_level: Option<i32>,
         statistics: bool,
         row_group_size: Option<usize>,
+        default_encoding: Wrap<ParquetEncoding>
     ) -> PyResult<()> {
         let compression = parse_parquet_compression(compression, compression_level)?;
 
@@ -593,6 +594,7 @@ impl PyDataFrame {
                 .with_compression(compression)
                 .with_statistics(statistics)
                 .with_row_group_size(row_group_size)
+                .default_encoding(default_encoding.0)
                 .finish(&mut self.df)
                 .map_err(PyPolarsErr::from)?;
         } else {
@@ -601,6 +603,7 @@ impl PyDataFrame {
                 .with_compression(compression)
                 .with_statistics(statistics)
                 .with_row_group_size(row_group_size)
+                .default_encoding(default_encoding.0)
                 .finish(&mut self.df)
                 .map_err(PyPolarsErr::from)?;
         }

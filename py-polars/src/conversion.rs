@@ -778,6 +778,23 @@ impl FromPyObject<'_> for Wrap<CategoricalOrdering> {
     }
 }
 
+impl FromPyObject<'_> for Wrap<ParquetEncoding> {
+    fn extract(ob: &PyAny) -> PyResult<Self> {
+        let parsed = match ob.extract::<&str>()? {
+            "plain" => ParquetEncoding::Plain,
+            "rle-dictionary" => ParquetEncoding::RleDictionary,
+            v => {
+                return Err(PyValueError::new_err(format!(
+                    "parquet encoding must be one of {{'plain', 'rle-dictionary'}}, got {}",
+                    v
+                )))
+            }
+        };
+        Ok(Wrap(parsed))
+    }
+
+}
+
 impl FromPyObject<'_> for Wrap<ClosedWindow> {
     fn extract(ob: &PyAny) -> PyResult<Self> {
         let parsed = match ob.extract::<&str>()? {

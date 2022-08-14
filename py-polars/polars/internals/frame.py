@@ -121,6 +121,7 @@ if TYPE_CHECKING:
         ParquetCompression,
         PivotAgg,
         UniqueKeepStrategy,
+        ParquetEncoding
     )
 
     # these aliases are used to annotate DataFrame.__getitem__()
@@ -1342,6 +1343,7 @@ class DataFrame:
         statistics: bool = False,
         row_group_size: int | None = None,
         use_pyarrow: bool = False,
+        default_encoding: ParquetEncoding = "plain",
         **kwargs: Any,
     ) -> None:
         """
@@ -1373,6 +1375,10 @@ class DataFrame:
         use_pyarrow
             Use C++ parquet implementation vs rust parquet implementation.
             At the moment C++ supports more features.
+        default_encoding: {'plain', 'rle-dictionary'}
+            Experimental and might change without being a breaking change.
+            Set the default encoding used when writing columns.
+            This is ignored if 'pyarrow=False'
         kwargs
             Arguments are passed to ``pyarrow.parquet.write_table``.
 
@@ -1412,7 +1418,7 @@ class DataFrame:
             )
         else:
             self._df.write_parquet(
-                file, compression, compression_level, statistics, row_group_size
+                file, compression, compression_level, statistics, row_group_size, default_encoding
             )
 
     def to_numpy(self) -> np.ndarray[Any, Any]:
