@@ -1,9 +1,12 @@
 use std::hash::{BuildHasher, Hash};
+use std::ops::{Add, BitAnd};
 
 use hashbrown::hash_map::{Entry, RawEntryMut};
 use hashbrown::HashMap;
 use polars_utils::{flatten, HashSingle};
 use rayon::prelude::*;
+use std::simd::*;
+use num_traits::NumCast;
 
 use super::GroupsProxy;
 use crate::datatypes::PlHashMap;
@@ -86,6 +89,189 @@ where
     }
 }
 
+fn process_partition_simd<T, const LANES: usize>(
+    keys: &[T],
+    offset: &mut IdxSize,
+    hash_tbl: &mut PlHashMap<T, (IdxSize, Vec<IdxSize>)>,
+    thread_no: u64,
+    group_size_hint: usize,
+    n_partitions: u64,
+)
+    where
+        T: Send + Hash + Eq + Sync + Copy + AsU64 + Default + SimdElement + NumCast,
+        Simd<T, LANES>: Add<Output=Simd<T, LANES>> + BitAnd<Output=Simd<T, LANES>>,
+        LaneCount<LANES>: SupportedLaneCount
+{
+
+    let len = keys.len() as IdxSize;
+    let hasher = hash_tbl.hasher().clone();
+
+    let mut cnt = 0;
+
+    let mut chunks = keys.chunks_exact(LANES);
+    let mut this_part_k = [T::default(); LANES];
+    let mut this_part_cnt = [0 as IdxSize; LANES];
+
+    let thread_no_vec = Simd::<T, LANES>::splat(NumCast::from(thread_no).unwrap());
+    let n_part_sub_1 = Simd::<T, LANES>::splat(NumCast::from(n_partitions.wrapping_sub(1)).unwrap());
+
+    (&mut chunks).for_each(|chunk| {
+        let mut part_write_idx = 0usize;
+
+        unsafe {
+            // TODO: transmute
+            let chunk: [T; LANES] = chunk.try_into().unwrap();
+
+            let chunk = Simd::from(chunk);
+            let this_partition = (chunk + thread_no_vec) & n_part_sub_1;
+
+
+        }
+
+        for k in chunk {
+            // unsafe {
+            //     *this_part_k.get_unchecked_mut(part_write_idx) = *k;
+            //     *this_part_cnt.get_unchecked_mut(part_write_idx) = cnt;
+            // }
+            // cnt += 1;
+            // part_write_idx += this_partition(k.as_u64(), thread_no, n_partitions) as usize
+        }
+
+        for (k, cnt) in this_part_k[..part_write_idx].iter().zip(&this_part_cnt[..part_write_idx]) {
+            let row_idx = cnt + *offset;
+            let hash = hasher.hash_single(k);
+            let entry = hash_tbl.raw_entry_mut().from_key_hashed_nocheck(hash, k);
+
+            match entry {
+                RawEntryMut::Vacant(entry) => {
+                    let mut tuples = Vec::with_capacity(group_size_hint);
+                    tuples.push(row_idx);
+                    entry.insert_with_hasher(hash, *k, (row_idx, tuples), |k| {
+                        hasher.hash_single(k)
+                    });
+                }
+                RawEntryMut::Occupied(mut entry) => {
+                    let v = entry.get_mut();
+                    v.1.push(row_idx);
+                }
+            }
+        }
+    });
+
+
+    chunks.remainder().iter().for_each(|k| {
+        let row_idx = cnt + *offset;
+        cnt += 1;
+
+        if this_partition(k.as_u64(), thread_no, n_partitions) {
+            let hash = hasher.hash_single(k);
+            let entry = hash_tbl.raw_entry_mut().from_key_hashed_nocheck(hash, k);
+
+            match entry {
+                RawEntryMut::Vacant(entry) => {
+                    let mut tuples = Vec::with_capacity(group_size_hint);
+                    tuples.push(row_idx);
+                    entry.insert_with_hasher(hash, *k, (row_idx, tuples), |k| {
+                        hasher.hash_single(k)
+                    });
+                }
+                RawEntryMut::Occupied(mut entry) => {
+                    let v = entry.get_mut();
+                    v.1.push(row_idx);
+                }
+            }
+        }
+    });
+    *offset += len;
+
+}
+
+/// Determine group tuples over different threads. The hash of the key is used to determine the partitions.
+/// Note that rehashing of the keys should be cheap and the keys small to allow efficient rehashing and improved cache locality.
+///
+/// Besides numeric values, we can also use this for pre hashed strings. The keys are simply a ptr to the str + precomputed hash.
+/// The hash will be used to rehash, and the str will be used for equality.
+pub(crate) fn groupby_threaded_num2<T, IntoSlice>(
+    keys: Vec<IntoSlice>,
+    group_size_hint: usize,
+    n_partitions: u64,
+    sorted: bool,
+) -> GroupsProxy
+    where
+        T: Send + Hash + Eq + Sync + Copy + AsU64 + Default + SimdElement + NumCast,
+        Simd<T, 16>: Add<Output=Simd<T, 16>> + BitAnd<Output=Simd<T, 16>>,
+        IntoSlice: AsRef<[T]> + Send + Sync,
+{
+    assert!(n_partitions.is_power_of_two());
+
+    // We will create a hashtable in every thread.
+    // We use the hash to partition the keys to the matching hashtable.
+    // Every thread traverses all keys/hashes and ignores the ones that doesn't fall in that partition.
+    let out = POOL.install(|| {
+        (0..n_partitions)
+            .into_par_iter()
+            .map(|thread_no| {
+                let mut hash_tbl: PlHashMap<T, (IdxSize, Vec<IdxSize>)> =
+                    PlHashMap::with_capacity(HASHMAP_INIT_SIZE);
+
+                let mut offset = 0;
+                for keys in &keys {
+                    let keys = keys.as_ref();
+                    process_partition_simd(keys, &mut offset, &mut hash_tbl, thread_no, group_size_hint, n_partitions)
+                }
+                hash_tbl
+                    .into_iter()
+                    .map(|(_k, v)| v)
+                    .collect_trusted::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    });
+    finish_group_order(out, sorted)
+}
+
+fn process_partition<T>(
+    keys: &[T],
+    offset: &mut IdxSize,
+    hash_tbl: &mut PlHashMap<T, (IdxSize, Vec<IdxSize>)>,
+    thread_no: u64,
+    group_size_hint: usize,
+    n_partitions: u64,
+)
+    where
+        T: Send + Hash + Eq + Sync + Copy + AsU64,
+{
+
+    let len = keys.len() as IdxSize;
+    let hasher = hash_tbl.hasher().clone();
+
+    let mut cnt = 0;
+    keys.iter().for_each(|k| {
+        let idx = cnt + *offset;
+        cnt += 1;
+
+        if this_partition(k.as_u64(), thread_no, n_partitions) {
+            let hash = hasher.hash_single(k);
+            let entry = hash_tbl.raw_entry_mut().from_key_hashed_nocheck(hash, k);
+
+            match entry {
+                RawEntryMut::Vacant(entry) => {
+                    let mut tuples = Vec::with_capacity(group_size_hint);
+                    tuples.push(idx);
+                    entry.insert_with_hasher(hash, *k, (idx, tuples), |k| {
+                        hasher.hash_single(k)
+                    });
+                }
+                RawEntryMut::Occupied(mut entry) => {
+                    let v = entry.get_mut();
+                    v.1.push(idx);
+                }
+            }
+        }
+    });
+    *offset += len;
+
+}
+
 /// Determine group tuples over different threads. The hash of the key is used to determine the partitions.
 /// Note that rehashing of the keys should be cheap and the keys small to allow efficient rehashing and improved cache locality.
 ///
@@ -116,34 +302,7 @@ where
                 let mut offset = 0;
                 for keys in &keys {
                     let keys = keys.as_ref();
-                    let len = keys.len() as IdxSize;
-                    let hasher = hash_tbl.hasher().clone();
-
-                    let mut cnt = 0;
-                    keys.iter().for_each(|k| {
-                        let idx = cnt + offset;
-                        cnt += 1;
-
-                        if this_partition(k.as_u64(), thread_no, n_partitions) {
-                            let hash = hasher.hash_single(k);
-                            let entry = hash_tbl.raw_entry_mut().from_key_hashed_nocheck(hash, k);
-
-                            match entry {
-                                RawEntryMut::Vacant(entry) => {
-                                    let mut tuples = Vec::with_capacity(group_size_hint);
-                                    tuples.push(idx);
-                                    entry.insert_with_hasher(hash, *k, (idx, tuples), |k| {
-                                        hasher.hash_single(k)
-                                    });
-                                }
-                                RawEntryMut::Occupied(mut entry) => {
-                                    let v = entry.get_mut();
-                                    v.1.push(idx);
-                                }
-                            }
-                        }
-                    });
-                    offset += len;
+                    process_partition(keys, &mut offset, &mut hash_tbl, thread_no, group_size_hint, n_partitions)
                 }
                 hash_tbl
                     .into_iter()

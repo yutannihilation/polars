@@ -26,6 +26,7 @@ pub mod groupby;
 pub mod hash_join;
 #[cfg(feature = "rows")]
 pub mod row;
+#[cfg(feature = "sort_multiple")]
 mod top_k;
 mod upstream_traits;
 
@@ -1798,6 +1799,7 @@ impl DataFrame {
             return Ok(self.clone());
         }
 
+        #[cfg(feature = "sort_multiple")]
         if let Some((0, k)) = slice {
             return self.top_k_impl(k, descending, by_column, nulls_last);
         }
