@@ -5,7 +5,7 @@ use polars::export::arrow::types::NativeType;
 use polars_core::prelude::*;
 use polars_core::utils::CustomIterTools;
 use polars_rs::export::arrow::bitmap::MutableBitmap;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 
 use crate::arrow_interop::to_rust::array_to_rust;
@@ -99,18 +99,16 @@ impl PySeries {
 
         for res in obj.iter()? {
             let item = res?;
-            if item.is_none() {
+            if let Ok(val) = item.extract::<bool>() {
+                builder.append_value(val)
+            } else if item.is_none() {
                 builder.append_null()
             } else {
-                match item.extract::<bool>() {
-                    Ok(val) => builder.append_value(val),
-                    Err(e) => {
-                        if strict {
-                            return Err(e);
-                        }
-                        builder.append_null()
-                    },
-                }
+                return Err(PyTypeError::new_err(format!(
+                    "expected boolean value, found value of type '{}': {}",
+                    item.get_type().name()?,
+                    item.repr()?
+                )));
             }
         }
         let ca = builder.finish();
@@ -131,19 +129,17 @@ where
 
     for res in obj.iter()? {
         let item = res?;
-
-        if item.is_none() {
+        if let Ok(val) = item.extract::<T::Native>() {
+            builder.append_value(val)
+        } else if item.is_none() || !strict {
             builder.append_null()
         } else {
-            match item.extract::<T::Native>() {
-                Ok(val) => builder.append_value(val),
-                Err(e) => {
-                    if strict {
-                        return Err(e);
-                    }
-                    builder.append_null()
-                },
-            }
+            return Err(PyTypeError::new_err(format!(
+                "expected {} value, found value of type '{}': {}",
+                std::any::type_name::<T::Native>(),
+                item.get_type().name()?,
+                item.repr()?
+            )));
         }
     }
     let ca = builder.finish();

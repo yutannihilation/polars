@@ -1,6 +1,7 @@
 use polars::prelude::AnyValue;
 #[cfg(feature = "cloud")]
 use pyo3::conversion::{FromPyObject, IntoPy};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyList, PyTuple};
 use pyo3::{intern, PyAny, PyResult};
@@ -52,9 +53,16 @@ impl<'a> FromPyObject<'a> for Wrap<StringChunked> {
 
         for res in obj.iter()? {
             let item = res?;
-            match item.extract::<&str>() {
-                Ok(val) => builder.append_value(val),
-                Err(_) => builder.append_null(),
+            if let Ok(val) = item.extract::<&str>() {
+                builder.append_value(val)
+            } else if item.is_none() {
+                builder.append_null()
+            } else {
+                return Err(PyTypeError::new_err(format!(
+                    "expected string value, found value of type '{}': {}",
+                    item.get_type().name()?,
+                    item.repr()?
+                )));
             }
         }
         Ok(Wrap(builder.finish()))
@@ -68,9 +76,16 @@ impl<'a> FromPyObject<'a> for Wrap<BinaryChunked> {
 
         for res in obj.iter()? {
             let item = res?;
-            match item.extract::<&[u8]>() {
-                Ok(val) => builder.append_value(val),
-                Err(_) => builder.append_null(),
+            if let Ok(val) = item.extract::<&[u8]>() {
+                builder.append_value(val)
+            } else if item.is_none() {
+                builder.append_null()
+            } else {
+                return Err(PyTypeError::new_err(format!(
+                    "expected binary value, found value of type '{}': {}",
+                    item.get_type().name()?,
+                    item.repr()?
+                )));
             }
         }
         Ok(Wrap(builder.finish()))

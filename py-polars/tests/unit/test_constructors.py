@@ -1513,3 +1513,33 @@ def test_df_init_dict_raise_on_expression_input() -> None:
     # Passing a list of expressions is allowed
     df = pl.DataFrame({"a": [pl.int_range(0, 3)]})
     assert df.get_column("a").dtype == pl.Object
+
+
+@pytest.mark.parametrize(
+    ("input", "expected"),
+    [
+        pytest.param([1, 2.5], [1.0, 2.5], id="float_int_mix1"),
+        pytest.param([2.5, 1], [2.5, 1.0], id="float_int_mix2"),
+        pytest.param([[1], [2.5]], [[1.0], [2.5]], id="float_int_mix_nested"),
+    ],
+)
+def test_series_init_mixed_types_coercion(
+    input: list[Any], expected: list[Any]
+) -> None:
+    assert_series_equal(pl.Series(input), pl.Series(expected))
+
+
+@pytest.mark.parametrize(
+    ("v1", "v2"),
+    [
+        (1, "x"),
+        (date(2011, 1, 2), 3.1415),
+    ],
+)
+def test_series_init_mixed_types_error(v1: Any, v2: Any) -> None:
+    with pytest.raises(TypeError):
+        pl.Series([v1, v2])
+    with pytest.raises(TypeError):
+        pl.Series([v2, v1])
+
+def 
