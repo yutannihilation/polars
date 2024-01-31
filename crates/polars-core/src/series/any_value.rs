@@ -3,12 +3,6 @@ use std::fmt::Write;
 use crate::prelude::*;
 use crate::utils::get_supertype;
 
-fn any_values_to_primitive<T: PolarsNumericType>(avs: &[AnyValue]) -> ChunkedArray<T> {
-    avs.iter()
-        .map(|av| av.extract::<T::Native>())
-        .collect_trusted()
-}
-
 #[cfg(feature = "dtype-decimal")]
 fn any_values_to_decimal(
     avs: &[AnyValue],
@@ -225,36 +219,36 @@ impl Series {
     ) -> PolarsResult<Series> {
         let mut s = match dtype {
             #[cfg(feature = "dtype-i8")]
-            DataType::Int8 => any_values_to_primitive::<Int8Type>(av).into_series(),
+            DataType::Int8 => any_values_to_i8(av, strict)?.into_series(),
             #[cfg(feature = "dtype-i16")]
-            DataType::Int16 => any_values_to_primitive::<Int16Type>(av).into_series(),
-            DataType::Int32 => any_values_to_primitive::<Int32Type>(av).into_series(),
-            DataType::Int64 => any_values_to_primitive::<Int64Type>(av).into_series(),
+            DataType::Int16 => any_values_to_i16(av, strict)?.into_series(),
+            DataType::Int32 => any_values_to_i32(av, strict)?.into_series(),
+            DataType::Int64 => any_values_to_i64(av, strict)?.into_series(),
             #[cfg(feature = "dtype-u8")]
-            DataType::UInt8 => any_values_to_primitive::<UInt8Type>(av).into_series(),
+            DataType::UInt8 => any_values_to_u8(av, strict)?.into_series(),
             #[cfg(feature = "dtype-u16")]
-            DataType::UInt16 => any_values_to_primitive::<UInt16Type>(av).into_series(),
-            DataType::UInt32 => any_values_to_primitive::<UInt32Type>(av).into_series(),
-            DataType::UInt64 => any_values_to_primitive::<UInt64Type>(av).into_series(),
-            DataType::Float32 => any_values_to_primitive::<Float32Type>(av).into_series(),
-            DataType::Float64 => any_values_to_primitive::<Float64Type>(av).into_series(),
+            DataType::UInt16 => any_values_to_u16(av, strict)?.into_series(),
+            DataType::UInt32 => any_values_to_u32(av, strict)?.into_series(),
+            DataType::UInt64 => any_values_to_u64(av, strict)?.into_series(),
+            DataType::Float32 => any_values_to_f32(av, strict)?.into_series(),
+            DataType::Float64 => any_values_to_f64(av, strict)?.into_series(),
             DataType::String => any_values_to_string(av, strict)?.into_series(),
             DataType::Binary => any_values_to_binary(av, strict)?.into_series(),
             DataType::Boolean => any_values_to_bool(av, strict)?.into_series(),
             #[cfg(feature = "dtype-date")]
-            DataType::Date => any_values_to_primitive::<Int32Type>(av)
+            DataType::Date => any_values_to_primitive_nonstrict::<Int32Type>(av)
                 .into_date()
                 .into_series(),
             #[cfg(feature = "dtype-datetime")]
-            DataType::Datetime(tu, tz) => any_values_to_primitive::<Int64Type>(av)
+            DataType::Datetime(tu, tz) => any_values_to_primitive_nonstrict::<Int64Type>(av)
                 .into_datetime(*tu, (*tz).clone())
                 .into_series(),
             #[cfg(feature = "dtype-time")]
-            DataType::Time => any_values_to_primitive::<Int64Type>(av)
+            DataType::Time => any_values_to_primitive_nonstrict::<Int64Type>(av)
                 .into_time()
                 .into_series(),
             #[cfg(feature = "dtype-duration")]
-            DataType::Duration(tu) => any_values_to_primitive::<Int64Type>(av)
+            DataType::Duration(tu) => any_values_to_primitive_nonstrict::<Int64Type>(av)
                 .into_duration(*tu)
                 .into_series(),
             #[cfg(feature = "dtype-decimal")]
@@ -459,6 +453,53 @@ impl Series {
         Self::from_any_values_and_dtype(name, values, &dtype, strict)
     }
 }
+
+fn any_values_to_primitive_nonstrict<T: PolarsNumericType>(values: &[AnyValue]) -> ChunkedArray<T> {
+    values
+        .iter()
+        .map(|av| av.extract::<T::Native>())
+        .collect_trusted()
+}
+
+macro_rules! impl_any_values_to_primitive {
+    ($name:ident, $type:ident, $av_type:ident) => {
+        fn $name(values: &[AnyValue], strict: bool) -> PolarsResult<ChunkedArray<$type>> {
+            fn any_values_to_primitive_strict(
+                values: &[AnyValue],
+            ) -> PolarsResult<ChunkedArray<$type>> {
+                let mut builder = PrimitiveChunkedBuilder::<$type>::new("", values.len());
+                for av in values {
+                    match av {
+                        AnyValue::$av_type(i) => builder.append_value(*i),
+                        AnyValue::Null => builder.append_null(),
+                        av => return Err(invalid_value_error(&$type::get_dtype(), av)),
+                    }
+                }
+                Ok(builder.finish())
+            }
+            if strict {
+                any_values_to_primitive_strict(values)
+            } else {
+                Ok(any_values_to_primitive_nonstrict::<$type>(values))
+            }
+        }
+    };
+}
+
+#[cfg(feature = "dtype-i8")]
+impl_any_values_to_primitive!(any_values_to_i8, Int8Type, Int8);
+#[cfg(feature = "dtype-i16")]
+impl_any_values_to_primitive!(any_values_to_i16, Int16Type, Int16);
+impl_any_values_to_primitive!(any_values_to_i32, Int32Type, Int32);
+impl_any_values_to_primitive!(any_values_to_i64, Int64Type, Int64);
+#[cfg(feature = "dtype-u8")]
+impl_any_values_to_primitive!(any_values_to_u8, UInt8Type, UInt8);
+#[cfg(feature = "dtype-u16")]
+impl_any_values_to_primitive!(any_values_to_u16, UInt16Type, UInt16);
+impl_any_values_to_primitive!(any_values_to_u32, UInt32Type, UInt32);
+impl_any_values_to_primitive!(any_values_to_u64, UInt64Type, UInt64);
+impl_any_values_to_primitive!(any_values_to_f32, Float32Type, Float32);
+impl_any_values_to_primitive!(any_values_to_f64, Float64Type, Float64);
 
 fn any_values_to_bool(values: &[AnyValue], strict: bool) -> PolarsResult<BooleanChunked> {
     if strict {
