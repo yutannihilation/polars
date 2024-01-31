@@ -236,9 +236,7 @@ impl Series {
             DataType::Binary => any_values_to_binary(av, strict)?.into_series(),
             DataType::Boolean => any_values_to_bool(av, strict)?.into_series(),
             #[cfg(feature = "dtype-date")]
-            DataType::Date => any_values_to_primitive_nonstrict::<Int32Type>(av)
-                .into_date()
-                .into_series(),
+            DataType::Date => any_values_to_date(av, strict)?.into_series(),
             #[cfg(feature = "dtype-datetime")]
             DataType::Datetime(tu, tz) => any_values_to_primitive_nonstrict::<Int64Type>(av)
                 .into_datetime(*tu, (*tz).clone())
@@ -599,6 +597,38 @@ fn any_values_to_binary_nonstrict(values: &[AnyValue]) -> BinaryChunked {
             _ => None,
         })
         .collect_trusted()
+}
+
+#[cfg(feature = "dtype-date")]
+fn any_values_to_date(values: &[AnyValue], strict: bool) -> PolarsResult<DateChunked> {
+    fn any_values_to_date_strict(values: &[AnyValue]) -> PolarsResult<DateChunked> {
+        let mut builder = PrimitiveChunkedBuilder::<Int32Type>::new("", values.len());
+        for av in values {
+            match av {
+                AnyValue::Date(i) => builder.append_value(*i),
+                AnyValue::Null => builder.append_null(),
+                av => return Err(invalid_value_error(&DataType::Date, av)),
+            }
+        }
+        Ok(builder.finish().into_date())
+    }
+    fn any_values_to_date_nonstrict(values: &[AnyValue]) -> DateChunked {
+        let mapper = |av: &AnyValue| match av {
+            AnyValue::Date(i) => Some(*i),
+            AnyValue::Null => None,
+            av => match av.cast(&DataType::Date) {
+                AnyValue::Date(i) => Some(i),
+                _ => None,
+            },
+        };
+        let ca_int32: Int32Chunked = values.iter().map(mapper).collect_trusted();
+        ca_int32.into_date()
+    }
+    if strict {
+        any_values_to_date_strict(values)
+    } else {
+        Ok(any_values_to_date_nonstrict(values))
+    }
 }
 
 fn invalid_value_error(dtype: &DataType, value: &AnyValue) -> PolarsError {
