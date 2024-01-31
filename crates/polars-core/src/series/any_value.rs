@@ -237,12 +237,12 @@ impl Series {
             DataType::Boolean => any_values_to_bool(av, strict)?.into_series(),
             #[cfg(feature = "dtype-date")]
             DataType::Date => any_values_to_date(av, strict)?.into_series(),
-            #[cfg(feature = "dtype-datetime")]
-            DataType::Datetime(tu, tz) => any_values_to_primitive_nonstrict::<Int64Type>(av)
-                .into_datetime(*tu, (*tz).clone())
-                .into_series(),
             #[cfg(feature = "dtype-time")]
             DataType::Time => any_values_to_time(av, strict)?.into_series(),
+            #[cfg(feature = "dtype-datetime")]
+            DataType::Datetime(tu, tz) => {
+                any_values_to_datetime(av, *tu, tz.clone(), strict)?.into_series()
+            },
             #[cfg(feature = "dtype-duration")]
             DataType::Duration(tu) => any_values_to_duration(av, *tu, strict)?.into_series(),
             #[cfg(feature = "dtype-decimal")]
@@ -683,6 +683,51 @@ fn any_values_to_duration(
         values: &[AnyValue],
         time_unit: TimeUnit,
     ) -> DurationChunked {
+        let mapper = |av: &AnyValue| match av {
+            AnyValue::Duration(i, tu) if *tu == time_unit => Some(*i),
+            AnyValue::Null => None,
+            av => match av.cast(&DataType::Duration(time_unit)) {
+                AnyValue::Duration(i, _) => Some(i),
+                _ => None,
+            },
+        };
+        let ca_int64: Int64Chunked = values.iter().map(mapper).collect_trusted();
+        ca_int64.into_duration(time_unit)
+    }
+    if strict {
+        any_values_to_duration_strict(values, time_unit)
+    } else {
+        Ok(any_values_to_duration_nonstrict(values, time_unit))
+    }
+}
+
+#[cfg(feature = "dtype-datetime")]
+fn any_values_to_datetime(
+    values: &[AnyValue],
+    time_unit: TimeUnit,
+    time_zone: Option<String>,
+    strict: bool,
+) -> PolarsResult<DatetimeChunked> {
+    fn any_values_to_datetime_strict(
+        values: &[AnyValue],
+        time_unit: TimeUnit,
+        time_zone: Option<String>,
+    ) -> PolarsResult<DatetimeChunked> {
+        let mut builder = PrimitiveChunkedBuilder::<Int64Type>::new("", values.len());
+        for av in values {
+            match av {
+                AnyValue::Duration(i, tu) if *tu == time_unit => builder.append_value(*i),
+                AnyValue::Null => builder.append_null(),
+                av => return Err(invalid_value_error(&DataType::Duration(time_unit), av)),
+            }
+        }
+        Ok(builder.finish().into_duration(time_unit))
+    }
+    fn any_values_to_datetime_nonstrict(
+        values: &[AnyValue],
+        time_unit: TimeUnit,
+        time_zone: Option<String>,
+    ) -> DatetimeChunked {
         let mapper = |av: &AnyValue| match av {
             AnyValue::Duration(i, tu) if *tu == time_unit => Some(*i),
             AnyValue::Null => None,
