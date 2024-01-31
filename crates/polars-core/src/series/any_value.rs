@@ -242,9 +242,7 @@ impl Series {
                 .into_datetime(*tu, (*tz).clone())
                 .into_series(),
             #[cfg(feature = "dtype-time")]
-            DataType::Time => any_values_to_primitive_nonstrict::<Int64Type>(av)
-                .into_time()
-                .into_series(),
+            DataType::Time => any_values_to_time(av, strict)?.into_series(),
             #[cfg(feature = "dtype-duration")]
             DataType::Duration(tu) => any_values_to_primitive_nonstrict::<Int64Type>(av)
                 .into_duration(*tu)
@@ -628,6 +626,38 @@ fn any_values_to_date(values: &[AnyValue], strict: bool) -> PolarsResult<DateChu
         any_values_to_date_strict(values)
     } else {
         Ok(any_values_to_date_nonstrict(values))
+    }
+}
+
+#[cfg(feature = "dtype-time")]
+fn any_values_to_time(values: &[AnyValue], strict: bool) -> PolarsResult<TimeChunked> {
+    fn any_values_to_time_strict(values: &[AnyValue]) -> PolarsResult<TimeChunked> {
+        let mut builder = PrimitiveChunkedBuilder::<Int64Type>::new("", values.len());
+        for av in values {
+            match av {
+                AnyValue::Time(i) => builder.append_value(*i),
+                AnyValue::Null => builder.append_null(),
+                av => return Err(invalid_value_error(&DataType::Time, av)),
+            }
+        }
+        Ok(builder.finish().into_time())
+    }
+    fn any_values_to_time_nonstrict(values: &[AnyValue]) -> TimeChunked {
+        let mapper = |av: &AnyValue| match av {
+            AnyValue::Time(i) => Some(*i),
+            AnyValue::Null => None,
+            av => match av.cast(&DataType::Time) {
+                AnyValue::Time(i) => Some(i),
+                _ => None,
+            },
+        };
+        let ca_int64: Int64Chunked = values.iter().map(mapper).collect_trusted();
+        ca_int64.into_time()
+    }
+    if strict {
+        any_values_to_time_strict(values)
+    } else {
+        Ok(any_values_to_time_nonstrict(values))
     }
 }
 
