@@ -2,7 +2,7 @@
 # constructor once the Python-side logic has been updated
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 import pytest
@@ -22,6 +22,7 @@ from polars.utils._wrap import wrap_s
         (pl.String, ["123", "xyz", None]),
         (pl.Date, [date(1970, 1, 1), date(2000, 12, 31), None]),
         (pl.Time, [time(0, 0), time(10, 0), None]),
+        (pl.Duration, [timedelta(hours=1), timedelta(days=1), None]),
     ],
 )
 def test_fallback_with_dtype_strict(
@@ -43,6 +44,8 @@ def test_fallback_with_dtype_strict(
         (pl.String, [b"123", b"xyz"]),
         (pl.Date, [datetime(1970, 1, 1), datetime(2000, 12, 31)]),
         (pl.Time, [0, 1_000]),
+        (pl.Duration, [0, 1_000]),
+        (pl.Duration("ns"), [timedelta(hours=1), timedelta(days=1)]),
     ],
 )
 def test_fallback_with_dtype_strict_failure(
@@ -96,6 +99,18 @@ def test_fallback_with_dtype_strict_failure(
             pl.Time,
             [1_000, 2_000.5, date(1970, 1, 1), datetime(1970, 1, 2), "00:00:00", "xyz"],
             [time(microsecond=1), time(microsecond=2), None, time(0, 0), None, None],
+        ),
+        (
+            pl.Duration,
+            [timedelta(hours=1), 2, 3.5, datetime(1970, 1, 2), "00:00:00", "xyz"],
+            [
+                timedelta(hours=1),
+                timedelta(microseconds=2),
+                timedelta(microseconds=3),
+                None,
+                None,
+                None,
+            ],
         ),
     ],
 )
