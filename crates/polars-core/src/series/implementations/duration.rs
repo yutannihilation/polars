@@ -165,6 +165,16 @@ impl private::PrivateSeries for SeriesWrap<DurationChunked> {
                     .into_date()
                     .into_series())
             },
+            (DataType::Duration(tu), DataType::Time) => {
+                let lhs = self.cast(&DataType::Int64).unwrap();
+                let lhs = match tu {
+                    TimeUnit::Milliseconds => lhs * 1_000_000,
+                    TimeUnit::Microseconds => lhs * 1_000,
+                    TimeUnit::Nanoseconds => lhs,
+                };
+                let rhs = rhs.cast(&DataType::Int64).unwrap();
+                Ok(lhs.add_to(&rhs)?.into_time().into_series())
+            },
             (DataType::Duration(tu), DataType::Datetime(tur, tz)) => {
                 polars_ensure!(tu == tur, InvalidOperation: "units are different");
                 let lhs = self.cast(&DataType::Int64).unwrap();

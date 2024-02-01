@@ -35,7 +35,7 @@ fn is_datetime_arithmetic(type_left: &DataType, type_right: &DataType, op: Opera
         && matches_any_order!(
             &type_left,
             &type_right,
-            DataType::Datetime(_, _) | DataType::Date,
+            DataType::Datetime(_, _) | DataType::Date | DataType::Time,
             DataType::Duration(_)
         )
 }

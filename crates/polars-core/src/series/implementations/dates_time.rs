@@ -110,6 +110,16 @@ macro_rules! impl_dyn_series {
                         .unwrap())
                         - rhs)
                         .cast(&DataType::Date),
+                    (DataType::Time, DataType::Duration(tu)) => {
+                        let lhs = self.cast(&DataType::Int64).unwrap();
+                        let rhs = rhs.cast(&DataType::Int64).unwrap();
+                        let rhs = match tu {
+                            TimeUnit::Milliseconds => rhs * 1_000_000,
+                            TimeUnit::Microseconds => rhs * 1_000,
+                            TimeUnit::Nanoseconds => rhs,
+                        };
+                        Ok(lhs.subtract(&rhs)?.into_time().into_series())
+                    },
                     (dtl, dtr) => polars_bail!(opq = sub, dtl, dtr),
                 }
             }
@@ -120,6 +130,16 @@ macro_rules! impl_dyn_series {
                         .unwrap())
                         + rhs)
                         .cast(&DataType::Date),
+                    (DataType::Time, DataType::Duration(tu)) => {
+                        let lhs = self.cast(&DataType::Int64).unwrap();
+                        let rhs = rhs.cast(&DataType::Int64).unwrap();
+                        let rhs = match tu {
+                            TimeUnit::Milliseconds => rhs * 1_000_000,
+                            TimeUnit::Microseconds => rhs * 1_000,
+                            TimeUnit::Nanoseconds => rhs,
+                        };
+                        Ok(lhs.add_to(&rhs)?.into_time().into_series())
+                    },
                     (dtl, dtr) => polars_bail!(opq = add, dtl, dtr),
                 }
             }
