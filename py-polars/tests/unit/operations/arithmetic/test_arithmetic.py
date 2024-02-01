@@ -1,5 +1,5 @@
 import operator
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 import numpy as np
@@ -8,6 +8,7 @@ import pytest
 import polars as pl
 from polars.datatypes import FLOAT_DTYPES, INTEGER_DTYPES
 from polars.testing import assert_frame_equal, assert_series_equal
+from polars.type_aliases import TimeUnit
 
 
 def test_sqrt_neg_inf() -> None:
@@ -293,3 +294,34 @@ def test_null_column_arithmetic(op: Any) -> None:
     # test broadcast left
     output_df = df.select(op(pl.Series("a", [None]), pl.col("a")))
     assert_frame_equal(expected_df, output_df)
+
+
+@pytest.mark.parametrize("time_unit", ["ms", "us", "ns"])
+def test_time_add_duration(time_unit: TimeUnit) -> None:
+    df = pl.DataFrame(
+        {
+            "time": [time(0, 0), time(10, 0), time(23, 0)],
+            "duration": [
+                timedelta(minutes=15),
+                timedelta(hours=5),
+                timedelta(days=5, hours=1),
+            ],
+        },
+        schema_overrides={"duration": pl.Duration(time_unit)},
+    )
+    result = df.select(
+        (pl.col("time") + pl.col("duration")).alias("add"),
+        (pl.col("time") - pl.col("duration")).alias("sub"),
+        (pl.col("duration") + pl.col("time")).alias("radd"),
+    )
+    expected = pl.DataFrame(
+        {
+            "add": [time(0, 15), time(15, 0), time(0, 0)],
+            "sub": [time(0, 0), time(10, 0), time(23, 0)],
+            "radd": [time(0, 15), time(15, 0), time(0, 0)],
+        }
+    )
+    assert_frame_equal(result, expected)
+
+    with pytest.raises(pl.InvalidOperationError):
+        df.select((pl.col("duration") - pl.col("time")).alias("rsub"))
