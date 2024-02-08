@@ -179,11 +179,7 @@ impl PySeries {
             UInt64 => numeric_series_to_numpy::<UInt64Type, f64>(py, s),
             Float32 => numeric_series_to_numpy::<Float32Type, f32>(py, s),
             Float64 => numeric_series_to_numpy::<Float64Type, f64>(py, s),
-            Boolean => {
-                let ca = s.bool().unwrap();
-                let np_arr = PyArray1::from_iter(py, ca.into_iter().map(|s| s.into_py(py)));
-                np_arr.into_py(py)
-            },
+            Boolean => boolean_series_to_numpy(py, s),
             Date => date_series_to_numpy(py, s),
             Datetime(_, _) | Duration(_) => temporal_series_to_numpy(py, s),
             Time => {
@@ -251,6 +247,18 @@ where
     };
     let np_arr = PyArray1::from_iter(py, ca.iter().map(mapper));
     np_arr.into_py(py)
+}
+/// Convert booleans directly to bytepacked, or convert to object if nulls are present
+fn boolean_series_to_numpy(py: Python, s: &Series) -> PyObject {
+    if s.null_count() == 0 {
+        let arr = s.bool().unwrap().downcast_iter().next().unwrap();
+        let np_arr = PyArray1::<bool>::from_iter(py, arr.values_iter());
+        np_arr.into_py(py)
+    } else {
+        let ca = s.bool().unwrap();
+        let np_arr = PyArray1::from_iter(py, ca.into_iter().map(|s| s.into_py(py)));
+        np_arr.into_py(py)
+    }
 }
 /// Convert dates directly to i64 with i64::MIN representing a null value
 fn date_series_to_numpy(py: Python, s: &Series) -> PyObject {

@@ -42,7 +42,6 @@ from polars.datatypes import (
     Object,
     String,
     Time,
-    UInt8,
     UInt32,
     UInt64,
     Unknown,
@@ -4367,9 +4366,6 @@ class Series:
         if self.null_count() == 0:
             if dtype.is_integer() or dtype.is_float():
                 np_array = self._view(ignore_nulls=True)
-            elif dtype == Boolean:
-                raise_no_zero_copy()
-                np_array = self.cast(UInt8)._view(ignore_nulls=True).view(bool)
             elif dtype in (Datetime, Duration):
                 np_dtype = temporal_dtype_to_numpy(dtype)
                 np_array = self._view(ignore_nulls=True).view(np_dtype)

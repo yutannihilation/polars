@@ -208,6 +208,8 @@ def test_series_to_numpy_bool() -> None:
 
     assert s.to_list() == result.tolist()
     assert result.dtype == np.bool_
+    assert result.flags.writeable is True
+
     assert_zero_copy_only_raises(s)
 
 
