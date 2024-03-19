@@ -181,7 +181,7 @@ def test_group_schema_err() -> None:
 
 def test_schema_inference_from_rows() -> None:
     # these have to upcast to float
-    result = pl.from_records([[1, 2.1, 3], [4, 5, 6.4]])
+    result = pl.from_records([[1, 2.1, 3], [4, 5, 6.4]], strict=False)
     assert result.to_dict(as_series=False) == {
         "column_0": [1.0, 2.1, 3.0],
         "column_1": [4.0, 5.0, 6.4],
