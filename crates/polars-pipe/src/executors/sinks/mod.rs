@@ -8,6 +8,7 @@ mod reproject;
 mod slice;
 mod sort;
 mod utils;
+mod aggregation;
 
 use std::sync::OnceLock;
 
