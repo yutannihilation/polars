@@ -9,7 +9,6 @@ import numpy as np
 import pytest
 
 import polars as pl
-from polars.datatypes.convert import dtype_to_py_type
 from polars.exceptions import InvalidOperationError
 
 if TYPE_CHECKING:
@@ -66,19 +65,6 @@ def test_error_on_invalid_by_in_asof_join() -> None:
     df2 = df1.with_columns(pl.col("a").cast(pl.Categorical))
     with pytest.raises(pl.ComputeError):
         df1.join_asof(df2, on="b", by=["a", "c"])
-
-
-def test_error_on_invalid_series_init() -> None:
-    for dtype in pl.TEMPORAL_DTYPES:
-        py_type = dtype_to_py_type(dtype)
-        with pytest.raises(
-            TypeError,
-            match=f"'float' object cannot be interpreted as a {py_type.__name__!r}",
-        ):
-            pl.Series([1.5, 2.0, 3.75], dtype=dtype)
-
-    with pytest.raises(TypeError, match="unexpected value"):
-        pl.Series([1.5, 2.0, 3.75], dtype=pl.Int32)
 
 
 def test_error_on_invalid_struct_field() -> None:

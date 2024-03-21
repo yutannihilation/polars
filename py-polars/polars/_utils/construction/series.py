@@ -312,6 +312,10 @@ def _construct_series_with_fallbacks(
     try:
         return constructor(name, values, strict)
     except TypeError:
+        # TODO: Remove line below to enforce strictness
+        # https://github.com/pola-rs/polars/issues/14427
+        strict = False
+
         if dtype is None:
             return PySeries.new_from_any_values(name, values, strict)
         else:

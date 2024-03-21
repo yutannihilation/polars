@@ -10,8 +10,10 @@ import polars as pl
 def test_series_mixed_dtypes_list() -> None:
     values = [[0.1, 1]]
 
-    with pytest.raises(TypeError, match="unexpected value"):
-        pl.Series(values)
+    # TODO: Enable when strictness is enforced
+    # https://github.com/pola-rs/polars/issues/14427
+    # with pytest.raises(TypeError, match="unexpected value"):
+    #     pl.Series(values)
 
     s = pl.Series(values, strict=False)
     assert s.dtype == pl.List(pl.Float64)
@@ -69,7 +71,23 @@ def test_sequence_of_series_with_dtype(dtype: pl.PolarsDataType | None) -> None:
 def test_upcast_primitive_and_strings(
     values: list[Any], dtype: pl.PolarsDataType, expected_dtype: pl.PolarsDataType
 ) -> None:
-    with pytest.raises(TypeError):
-        pl.Series(values, dtype=dtype, strict=True)
+    # TODO: Enable when strictness is enforced
+    # https://github.com/pola-rs/polars/issues/14427
+    # with pytest.raises(TypeError):
+    #     pl.Series(values, dtype=dtype, strict=True)
 
     assert pl.Series(values, dtype=dtype, strict=False).dtype == expected_dtype
+
+
+def test_error_on_invalid_series_init() -> None:
+    for dtype in pl.TEMPORAL_DTYPES:
+        with pytest.raises(
+            TypeError,
+            match="'float' object cannot be interpreted as",
+        ):
+            pl.Series([1.5, 2.0, 3.75], dtype=dtype)
+
+    # TODO: Enable when strictness is enforced
+    # https://github.com/pola-rs/polars/issues/14427
+    # with pytest.raises(TypeError):
+    #     pl.Series([1.5, 2.0, 3.75], dtype=pl.Int32)
